@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = [
+    "brt_core",
+    "pybrt"
+]
+
+[workspace.package]
+name = "brt"
+version = "0.0.1"
+authors = [ "Jakub Bartczuk" ]
+
+[workspace.dependencies]
+brt-core = {path = "brt_core"}
+polars = {version = "0.36.2", features = ["csv", "polars-io"]}
+clap = {version = "4.4.13", features = ["derive"]}

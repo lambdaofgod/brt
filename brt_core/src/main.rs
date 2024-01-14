@@ -1,11 +1,17 @@
+mod indexable;
 mod polars_documents;
 mod wrappers;
+use crate::indexable::IndexableCollection;
+use crate::polars_documents::*;
+use anyhow::Result;
 use clap::Parser;
-use polars::prelude::{CsvReader, PolarsResult};
+use polars::prelude::CsvReader;
 use polars::prelude::{PolarsError, SerReader};
-use polars_documents::{df_rows_foreach, IndexableCollection};
+use polars_documents::df_rows_foreach;
 use std::default::Default;
+use std::fs;
 use std::fs::File;
+use std::path::PathBuf;
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
@@ -13,7 +19,7 @@ use tantivy::{doc, Index, IndexWriter, ReloadPolicy};
 use tempfile::TempDir;
 use wrappers::TantivyIndexWrapper;
 
-fn tantivy_index_example_impl() -> tantivy::Result<()> {
+fn tantivy_index_example_impl() -> Result<()> {
     // Let's create a temporary directory for the
     // sake of this example
     let index_path = TempDir::new()?;
@@ -237,40 +243,25 @@ fn tantivy_index_example_impl() -> tantivy::Result<()> {
     Ok(())
 }
 
-fn tantivy_result_to_std<T>(res: tantivy::Result<T>) -> Result<T, String> {
-    match res {
-        Ok(v) => Ok(v),
-        Err(e) => Err(format!("{}", e)),
-    }
+fn tantivy_index_example() -> Result<()> {
+    Ok(tantivy_index_example_impl()?)
 }
 
-fn tantivy_index_example() -> Result<(), String> {
-    tantivy_result_to_std(tantivy_index_example_impl())
-}
-
-fn polars_example(csv_path: &str) -> PolarsResult<()> {
+fn polars_example(csv_path: &str) -> Result<()> {
     let reader = CsvReader::from_path(csv_path).unwrap();
 
     let df = reader.has_header(true).finish()?;
 
-    df_rows_foreach::<PolarsError>(&df, &|row| {
+    df_rows_foreach(&df, &|row| {
         println!("{:?}", row);
         Ok(())
     })
 }
 
-fn polars_result_to_result<T>(res: PolarsResult<T>) -> Result<T, String> {
-    match res {
-        Ok(x) => Ok(x),
-        Err(e) => Err(format!("{}", e)),
-    }
-}
-
-fn polars_search_example(csv_path: String, query: String) -> Result<(), String> {
+fn polars_search_example(csv_path: String, query: String) -> Result<()> {
     let reader = CsvReader::from_path(&csv_path).unwrap();
 
-    let df_res = reader.has_header(true).finish();
-    let df = polars_result_to_result(df_res)?;
+    let df = reader.has_header(true).finish()?;
 
     let index = TantivyIndexWrapper::new(
         "test_index".to_string(),
@@ -278,15 +269,27 @@ fn polars_search_example(csv_path: String, query: String) -> Result<(), String> 
         vec!["dependencies".to_string()],
     );
 
-    let indexing_result = df.index_collection(&index);
+    df.index_collection(&index)?;
 
-    match index.search(&query) {
-        Ok(search_result) => {
-            println!("Search result: {:?}", search_result);
-            Ok(())
-        }
-        Err(e) => Err(format!("Error: {}", e)),
-    }
+    let search_result = index.search(&query);
+    println!("Search result: {:?}", search_result);
+    Ok(())
+}
+
+fn dir_search_example(dir: String, query: String) -> Result<()> {
+    let index = TantivyIndexWrapper::new(
+        "dir_index".to_string(),
+        "name".to_string(),
+        vec!["contents".to_string()],
+    );
+
+    println!("Indexing dir: {}", dir);
+    let dir_buf = PathBuf::from(dir);
+    dir_buf.index_collection(&index)?;
+
+    let search_result = index.search(&query)?;
+    println!("Search result: {:?}", search_result);
+    Ok(())
 }
 
 #[derive(clap::ValueEnum, Debug, Clone)]
@@ -294,6 +297,7 @@ enum ExampleType {
     Tantivy,
     Polars,
     PolarsSearchExample,
+    DirSearchExample,
 }
 
 #[derive(Parser, Debug)]
@@ -302,18 +306,21 @@ struct Args {
     example_type: ExampleType,
     #[clap(default_value = "data/search_example_small.csv")]
     csv_path: Option<String>,
+    #[clap(default_value = "")]
+    dir: Option<String>,
     #[clap(default_value = "text")]
     query: String,
 }
 
-fn main() -> Result<(), String> {
+fn main() -> Result<()> {
     let args = Args::parse();
 
     match args.example_type {
         ExampleType::Tantivy => tantivy_index_example(),
-        ExampleType::Polars => polars_result_to_result(polars_example(&args.csv_path.unwrap())),
+        ExampleType::Polars => polars_example(&args.csv_path.unwrap()),
         ExampleType::PolarsSearchExample => {
             polars_search_example(args.csv_path.unwrap(), args.query)
         }
+        ExampleType::DirSearchExample => dir_search_example(args.dir.unwrap(), args.query),
     }
 }

@@ -1,18 +1,13 @@
-use crate::polars_documents::IndexableCollection;
+use crate::indexable::IndexableCollection;
+use crate::polars_documents::*;
 use crate::wrappers::TantivyIndexWrapper;
+use anyhow::Result;
 use polars::prelude::DataFrame;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
 pub struct IndexRegistry {
     pub indices: RwLock<HashMap<String, Box<TantivyIndexWrapper>>>,
-}
-
-fn from_tantivy_result<T>(tantivy_res: tantivy::Result<T>) -> Result<T, String> {
-    match tantivy_res {
-        Ok(res) => Ok(res),
-        Err(err) => Err(err.to_string()),
-    }
 }
 
 impl IndexRegistry {
@@ -44,28 +39,24 @@ impl IndexRegistry {
         Ok(())
     }
 
-    pub fn index_document(
-        &self,
-        name: String,
-        document_map: HashMap<&str, String>,
-    ) -> Result<(), String> {
+    pub fn index_document(&self, name: String, document_map: HashMap<&str, String>) -> Result<()> {
         let binding = self.indices.read().unwrap();
         let index_wrapper = binding.get(&name).unwrap();
 
-        from_tantivy_result(index_wrapper.add_document(document_map))
+        Ok(index_wrapper.add_document(document_map)?)
     }
 
-    pub fn search(&self, name: String, query: String) -> Result<Vec<String>, String> {
+    pub fn search(&self, name: String, query: String) -> Result<Vec<String>> {
         let binding = self.indices.read().unwrap();
         let index_wrapper = binding.get(&name.to_string()).unwrap();
 
-        from_tantivy_result(index_wrapper.search(&query.to_string()))
+        Ok(index_wrapper.search(&query.to_string())?)
     }
 
-    pub fn index_df(&self, name: String, df: &DataFrame) -> Result<(), String> {
+    pub fn index_df(&self, name: String, df: &DataFrame) -> Result<()> {
         let binding = self.indices.read().unwrap();
         let index_wrapper = binding.get(&name.to_string()).unwrap();
 
-        from_tantivy_result(df.index_collection(index_wrapper))
+        df.index_collection(index_wrapper)
     }
 }
